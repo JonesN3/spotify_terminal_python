@@ -28,39 +28,54 @@ class Commander(cmd.Cmd):
 	def __init__(self):
 		cmd.Cmd.__init__(self)
 
+		# so whe can manage the state for these callbacks
 		self.logged_in = threading.Event()
 		self.logged_out = threading.Event()
 		self.end_of_track = threading.Event()
+
+		# set logged_out and end_of_track to true
 		self.logged_out.set()
 		self.end_of_track.set()
 
+		# create the spotify session
 		self.session = spotify.Session()
+
+		# look for event changes 
 		self.session.on(
 			spotify.SessionEvent.CONNECTION_STATE_UPDATED,
 			self.on_connection_state_changed)
 		self.session.on(
 			spotify.SessionEvent.END_OF_TRACK, self.on_end_of_track)
 
+		# initialize the alsa audio
 		try:
 			self.audio_driver = spotify.AlsaSink(self.session)
 		except ImportError:
 			self.logger.warning(
 				'No audio sink found; audio playback unavailable.')
 
+		# start the event loop
 		self.event_loop = spotify.EventLoop(self.session)
 		self.event_loop.start()
 
+	# called when connection state changed, 
+	# e.g. the user login got a successful callback  
 	def on_connection_state_changed(self, session):
 		if session.connection.state is spotify.ConnectionState.LOGGED_IN:
+			# set the user login states
 			self.logged_in.set()
 			self.logged_out.clear()
-			print("loading playlists")
+
+			# once logged in, load the users playlistcontainer
 			self.load_root_container()
 
 		elif session.connection.state is spotify.ConnectionState.LOGGED_OUT:
+			# log out properly when logout callback returns
 			self.logged_in.clear()
 			self.logged_out.set()
 
+	# When the the end_of_track callback returns
+	# try to continue the play_queue
 	def on_end_of_track(self, session):
 		self.logger.info("End of track")
 		self.session.player.play(False)
@@ -77,6 +92,8 @@ class Commander(cmd.Cmd):
 	def emptyline(self):
 		pass
 
+	# cmd looks for methods within Commander starting with
+	# do_X as runnable commands.
 	def do_info(self, line):
 		"Show normal logging output"
 		print('Logging at INFO level')
@@ -105,8 +122,8 @@ class Commander(cmd.Cmd):
 		print("Playlists")
 		self.container_root = self.session.playlist_container
 		self.container_root.load()	
-		#print(container_root)
 		i = 0
+
 		for playlist in self.container_root:
 			if( type(playlist) == spotify.playlist.Playlist):
 				a = i, playlist.name.encode('utf-8')
@@ -123,12 +140,6 @@ class Commander(cmd.Cmd):
 		for track in playlist.tracks:
 			print( track.artists[0].name.encode('utf-8') , "-", 
 				track.name.encode('utf-8'))
-
-	def go_next(self):
-		if(len(self.play_queue) > 0):
-			self.play(self.play_queue.popleft())
-		else:
-			print("Play queue empty")
 
 	def do_playp(self, line):
 		"Play selected playlist in background"
@@ -166,11 +177,13 @@ class Commander(cmd.Cmd):
 	def do_resume(self, line):
 		self.session.player.play()
 
+	def do_random(self, line):
+		self.randommode = 1
+
 	def do_queue(self, line):
 		"List current play queue"
 		for track in self.play_queue:
 			print(track.name.encode('utf-8'))
-
 
 	def do_search(self, query):
 		"search <query>"
@@ -208,6 +221,12 @@ class Commander(cmd.Cmd):
 
 		print("Playing: ", track.artists[0].name.encode('utf-8') , 
 			"-", track.name.encode('utf-8'))
+
+	def go_next(self):
+		if(len(self.play_queue) > 0):
+			self.play(self.play_queue.popleft())
+		else:
+			print("Play queue empty")
 
 	def load_root_container(self):
 		self.container_root = self.session.playlist_container
