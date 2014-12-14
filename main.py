@@ -7,6 +7,8 @@
 import logging
 import threading
 import cmd
+import random
+from collections import deque
 
 import spotify
 
@@ -22,12 +24,21 @@ class Commander(cmd.Cmd):
 	logger = logging.getLogger('shell.commander')
 	container_root = 0
 
+	current_playlist = -1
+	current_playlist_counter = -1
+
+	play_queue = deque ([])
+	randommode = 0
+
+	# Do some documentation on callbacks
 	def __init__(self):
 		cmd.Cmd.__init__(self)
 
 		self.logged_in = threading.Event()
 		self.logged_out = threading.Event()
+		self.end_of_track = threading.Event()
 		self.logged_out.set()
+		self.end_of_track.set()
 
 		self.session = spotify.Session()
 		self.session.on(
@@ -59,7 +70,8 @@ class Commander(cmd.Cmd):
 	def on_end_of_track(self, session):
 		self.logger.info("End of track")
 		self.session.player.play(False)
-		#end_of_track.set()
+		self.end_of_track.set()
+		self.go_next()
 
 	# document this
 	def precmd(self, line):
@@ -115,16 +127,55 @@ class Commander(cmd.Cmd):
 		playlist.load()
 
 		for track in playlist.tracks:
-			print( track.artists[0].name.encode('utf-8') , "-", track.name.encode('utf-8'))
+			print( track.artists[0].name.encode('utf-8') , "-", 
+				track.name.encode('utf-8'))
+
+	def go_next(self):
+		if(len(self.play_queue) > 0):
+			self.play(self.play_queue.popleft())
+		else:
+			print("Play queue empty")
 
 	def do_playp(self, line):
+		"Play selected playlist in background"
+		self.current_playlist_counter = 0;
+
+		playlistnumber = line.split(' ', 0)
+		playlistnumber = int(playlistnumber[0])
+		playlist = self.container_root[playlistnumber]
+		playlist.load()
+
+		self.current_playlist = playlist.tracks
+		random.shuffle(self.current_playlist)
+		self.play_queue.extend(self.current_playlist) 
+
+		#self.play(self.current_playlist[self.current_playlist_counter])
+		self.play(self.play_queue.popleft())
+
+	def do_n(self, line):
+		"Go to next song in current_playlist"
+		self.go_next()
+
+	def do_playp3(self, line):
 		"Play selected playlist"
 		playlistnumber = line.split(' ', 0)
 		playlistnumber = int(playlistnumber[0])
 		playlist = self.container_root[playlistnumber]
 		playlist.load()
 
-		self.play(playlist.tracks[0])
+		i = 0
+		tracks = playlist.tracks
+		random.shuffle(tracks)
+
+		while i < len(playlist.tracks):
+			self.play(tracks[i])
+			try:
+				while not self.end_of_track.wait(0.1):
+					pass
+			except KeyboardInterrupt:
+				break
+
+			i+=1
 
 	def do_search(self, line):
 		"Search for a song"
@@ -133,16 +184,57 @@ class Commander(cmd.Cmd):
 		"alias for playlists"
 		self.do_playlists(line)
 
+	def do_clear(self, line):
+		self.play_queue.clear()
+
+	def do_queue(self, line):
+		"List current play queue"
+		for track in self.play_queue:
+			print(track.name.encode('utf-8'))
+
+
+	def do_search(self, query):
+		"search <query>"
+		try:
+			result = self.session.search(query)
+			result.load()
+		except spotify.Error as e:
+			self.logger.warning(e)
+			return
+
+		print("\n")	
+		print("%d tracks, %d albums, %d artists, and %d playlists found." %
+			(result.track_total, result.album_total, 
+				result.artist_total, result.playlist_total))
+		i = 1
+		for track in result.tracks:
+				print(i, track.artists[0].name.encode('utf-8'), "-", track.name.encode('utf-8'))
+				i+=1
+
+		n = input("Select song to add to queue (0 = none)")
+		n = int(n) + 1
+		if(n == 0 ): return
+		if(n > 20 ): return
+		self.play_queue.appendleft(result.tracks[n])
+		print(self.end_of_track)
+		if(self.end_of_track.is_set()):
+			self.play(self.play_queue.pop())
+		print("\n")	
+
 	def play(self, track):
 		track.load()
 		self.session.player.load(track)
 		self.session.player.play()
+		self.end_of_track.clear()
+
 		print("Playing: ", track.artists[0].name.encode('utf-8') , 
 			"-", track.name.encode('utf-8'))
 
 	def load_root_container(self):
 		self.container_root = self.session.playlist_container
 		self.container_root.load()
+
+
 
 # do the cmd loop
 if __name__ == '__main__':
