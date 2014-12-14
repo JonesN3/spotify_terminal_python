@@ -9,10 +9,7 @@ import threading
 import cmd
 import random
 from collections import deque
-
 import spotify
-
-#container_root = 0
 
 print("Spotify_terminal")
 
@@ -23,9 +20,6 @@ class Commander(cmd.Cmd):
 	prompt = 'Command> '
 	logger = logging.getLogger('shell.commander')
 	container_root = 0
-
-	current_playlist = -1
-	current_playlist_counter = -1
 
 	play_queue = deque ([])
 	randommode = 0
@@ -145,37 +139,16 @@ class Commander(cmd.Cmd):
 		playlist = self.container_root[playlistnumber]
 		playlist.load()
 
-		self.current_playlist = playlist.tracks
-		random.shuffle(self.current_playlist)
-		self.play_queue.extend(self.current_playlist) 
+		current_playlist = [] 
+		current_playlist.extend(playlist.tracks)
+		random.shuffle(current_playlist)
+		self.play_queue.extend(current_playlist) 
 
-		#self.play(self.current_playlist[self.current_playlist_counter])
 		self.play(self.play_queue.popleft())
 
 	def do_n(self, line):
 		"Go to next song in current_playlist"
 		self.go_next()
-
-	def do_playp3(self, line):
-		"Play selected playlist"
-		playlistnumber = line.split(' ', 0)
-		playlistnumber = int(playlistnumber[0])
-		playlist = self.container_root[playlistnumber]
-		playlist.load()
-
-		i = 0
-		tracks = playlist.tracks
-		random.shuffle(tracks)
-
-		while i < len(playlist.tracks):
-			self.play(tracks[i])
-			try:
-				while not self.end_of_track.wait(0.1):
-					pass
-			except KeyboardInterrupt:
-				break
-
-			i+=1
 
 	def do_search(self, line):
 		"Search for a song"
@@ -186,6 +159,12 @@ class Commander(cmd.Cmd):
 
 	def do_clear(self, line):
 		self.play_queue.clear()
+	
+	def do_pause(self, line):
+		self.session.player.play(False)
+
+	def do_resume(self, line):
+		self.session.player.play()
 
 	def do_queue(self, line):
 		"List current play queue"
@@ -212,11 +191,11 @@ class Commander(cmd.Cmd):
 				i+=1
 
 		n = input("Select song to add to queue (0 = none)")
-		n = int(n) + 1
-		if(n == 0 ): return
+		n = int(n) - 1
+		if(n == -1 ): return
 		if(n > 20 ): return
 		self.play_queue.appendleft(result.tracks[n])
-		print(self.end_of_track)
+		print(self.end_of_track) 
 		if(self.end_of_track.is_set()):
 			self.play(self.play_queue.pop())
 		print("\n")	
