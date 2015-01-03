@@ -13,6 +13,29 @@ import spotify
 
 print("Spotify_terminal")
 
+### ncurses 
+import curses 
+import curses.textpad
+import cmd
+
+def maketextbox(h,w,y,x,value="",deco=None,textColorpair=0,decoColorpair=0):
+    # thanks to http://stackoverflow.com/a/5326195/8482 for this
+    nw = curses.newwin(h,w,y,x)
+    txtbox = curses.textpad.Textbox(nw,insert_mode=True)
+    if deco=="frame":
+        screen.attron(decoColorpair)
+        curses.textpad.rectangle(screen,y-1,x-1,y+h,x+w)
+        screen.attroff(decoColorpair)
+    elif deco=="underline":
+        screen.hline(y+1,x,underlineChr,w,decoColorpair)
+
+    nw.addstr(0,0,value,textColorpair)
+    nw.attron(textColorpair)
+    screen.refresh()
+    return nw,txtbox
+### end ncurses
+
+
 class Commander(cmd.Cmd):
 	# what is this
 	doc_header = 'Commands'
@@ -152,7 +175,8 @@ class Commander(cmd.Cmd):
 
 		current_playlist = [] 
 		current_playlist.extend(playlist.tracks)
-		random.shuffle(current_playlist)
+
+		if self.randommode: random.shuffle(current_playlist)
 		self.play_queue.extend(current_playlist) 
 
 		self.play(self.play_queue.popleft())
@@ -178,7 +202,9 @@ class Commander(cmd.Cmd):
 		self.session.player.play()
 
 	def do_random(self, line):
-		self.randommode = 1
+		if(self.randommode): self.randommode = 0
+		else: self.randommode = 1
+		print("Random", self.randommode)
 
 	def do_queue(self, line):
 		"List current play queue"
@@ -187,6 +213,7 @@ class Commander(cmd.Cmd):
 
 	def do_search(self, query):
 		"search <query>"
+		if query is None: return
 		try:
 			result = self.session.search(query)
 			result.load()
