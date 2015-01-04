@@ -13,29 +13,6 @@ import spotify
 
 print("Spotify_terminal")
 
-### ncurses 
-import curses 
-import curses.textpad
-import cmd
-
-def maketextbox(h,w,y,x,value="",deco=None,textColorpair=0,decoColorpair=0):
-    # thanks to http://stackoverflow.com/a/5326195/8482 for this
-    nw = curses.newwin(h,w,y,x)
-    txtbox = curses.textpad.Textbox(nw,insert_mode=True)
-    if deco=="frame":
-        screen.attron(decoColorpair)
-        curses.textpad.rectangle(screen,y-1,x-1,y+h,x+w)
-        screen.attroff(decoColorpair)
-    elif deco=="underline":
-        screen.hline(y+1,x,underlineChr,w,decoColorpair)
-
-    nw.addstr(0,0,value,textColorpair)
-    nw.attron(textColorpair)
-    screen.refresh()
-    return nw,txtbox
-### end ncurses
-
-
 class Commander(cmd.Cmd):
 	# what is this
 	doc_header = 'Commands'
