@@ -45,7 +45,7 @@ def now_playing_box():
     cols = int(tigetnum("cols"))
     lines = int(tigetnum("lines"))
 
-    window = curses.newwin(3, 100, lines-4, 0)
+    window = curses.newwin(3, cols, lines-4, 0)
     window.addstr(1, 2, "Nothing playing", 0)
     window.addstr(1, 2, "", 0)
     window.addstr(2, 2, "", 0)
@@ -76,7 +76,7 @@ def on_connection_state_changed(session):
 def on_end_of_track(session):
     #logger.info("End of track")
     session.player.play(False)
-    #end_of_track.set()
+    end_of_track.set()
     #go_next()
 
 def load_root_container():
@@ -91,18 +91,24 @@ def play(track):
     session.player.play()
     end_of_track.clear()
 
+    cols = int(tigetnum("cols"))
+    lines = int(tigetnum("lines"))
+
+    # cols = int(cols/2)
+
+    # ncurses
     np.clear()
-    np.addstr(0,2, track.artists[0].name.encode('utf-8'), 0)
-    np.addstr(1,2, track.name.encode('utf-8'), 0)
-    np.addstr(2,2, track.album.name.encode('utf-8'), 0)
+    np.addstr(0, (cols-len(track.artists[0].name))//2, track.artists[0].name.encode('utf-8'), 0)
+    np.addstr(1, (cols-len(track.name))//2, track.name.encode('utf-8'), 0)
+    np.addstr(2, (cols-len(track.album.name))//2, track.album.name.encode('utf-8'), 0)
     np.refresh()
     screen.refresh()
 
-
-    #print("Playing: ", track.artists[0].name.encode('utf-8') , 
-    #    "-", track.name.encode('utf-8'))
-
-   
+def go_next():
+    if(len(play_queue) > 0):
+        play(play_queue.popleft())
+    else:
+            print("Play queue empty")
 
 # look for event changes 
 session.on(
@@ -215,6 +221,108 @@ class Commands(cmd.Cmd):
         play_queue.extend(current_playlist) 
 
         play(play_queue.popleft())
+
+    def do_info(self, line):
+            "Show normal logging output"
+            print('Logging at INFO level')
+            print(container_root)
+            logger = logging.getLogger()
+            logger.setLevel(logging.INFO)
+
+    def do_exit(self, line):
+        "Exit"
+        if logged_in.is_set():
+            print('Logging out...')
+            session.logout()
+            logged_out.wait()
+        event_loop.stop()
+        print('')
+        return True
+
+    def do_playlists(self, line):
+        "print playlsits"
+        print("Playlists")
+        container_root = session.playlist_container
+        container_root.load()  
+        i = 0
+
+        for playlist in container_root:
+            if( type(playlist) == spotify.playlist.Playlist):
+                a = i, playlist.name.encode('utf-8')
+                print(a)
+                i += 1
+
+    def do_list(self, line):
+        "Print contents of a playlist"
+        playlistnumber = line.split(' ', 0)
+        playlistnumber = int(playlistnumber[0])
+        playlist = container_root[playlistnumber]
+        playlist.load()
+
+        for track in playlist.tracks:
+            print( track.artists[0].name.encode('utf-8') , "-", 
+                track.name.encode('utf-8'))
+
+    def do_n(self, line):
+        "Go to next song in current_playlist"
+        go_next()
+
+    def do_search(self, line):
+        "Search for a song"
+
+    def do_ls(self, line):
+        "alias for playlists"
+        do_playlists(line)
+
+    def do_clear(self, line):
+        play_queue.clear()
+
+    def do_pause(self, line):
+        session.player.play(False)
+
+    def do_resume(self, line):
+        session.player.play()
+
+    def do_random(self, line):
+        if(randommode): randommode = 0
+        else: randommode = 1
+        print("Random", randommode)
+
+    def do_queue(self, line):
+        "List current play queue"
+        for track in play_queue:
+            print(track.name.encode('utf-8'))
+
+    def do_search(self, query):
+        "search <query>"
+        if query is None: return
+        try:
+            result = session.search(query)
+            result.load()
+        except spotify.Error as e:
+            logger.warning(e)
+            return
+
+        print("\n") 
+        print("%d tracks, %d albums, %d artists, and %d playlists found." %
+            (result.track_total, result.album_total, 
+                result.artist_total, result.playlist_total))
+        i = 1
+        for track in result.tracks:
+                print(i, track.artists[0].name.encode('utf-8'), "-", track.name.encode('utf-8'))
+                i+=1
+
+        n = input("Select song to add to queue (0 = none)")
+        n = int(n) - 1
+        if(n == -1 ): return
+        if(n > 20 ): return
+        play_queue.appendleft(result.tracks[n])
+        print(end_of_track) 
+        if(end_of_track.is_set()):
+            play(play_queue.pop())
+        print("\n") 
+
+
 
 if __name__ == '__main__':
     curses.noecho()
