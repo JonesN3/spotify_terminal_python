@@ -1,5 +1,8 @@
 #!/usr/bin/env python 
 # -*- coding: utf-8 -*- 
+## TODO
+# Event loop is probably not working properly
+#
 
 # ncurses imports
 import curses 
@@ -16,8 +19,16 @@ import cmd
 import random
 from collections import deque
 
-screen = curses.initscr()   
+# for debugging
+import sys
+import traceback
 
+# Logging
+logging.basicConfig(filename='spotify.log',level=logging.DEBUG)
+logging.info("## Start of log ##")
+
+# initiate ncureses
+screen = curses.initscr()   
 
 randommode = 0
 play_queue = deque ([])
@@ -37,26 +48,122 @@ end_of_track.set()
 #logger = logging.getLogger('shell.commander')
 
 #global init
-
 container_root = session.playlist_container
 
+# ncurses windows
+# newwin(height, length, y, x)
+def maketextbox(h,w,y,x,value="",deco=None,textColorpair=0,decoColorpair=0):
+    # thanks to http://stackoverflow.com/a/5326195/8482 for this
+    nw = curses.newwin(h,w,y,x)
+    txtbox = curses.textpad.Textbox(nw,insert_mode=True)
+    if deco=="frame":
+        screen.attron(decoColorpair)
+        curses.textpad.rectangle(screen,y-1,x-1,y+h,x+w)
+        screen.attroff(decoColorpair)
+    elif deco=="underline":
+        screen.hline(y+1,x,underlineChr,w,decoColorpair)
 
-def now_playing_box():
-    cols = int(tigetnum("cols"))
-    lines = int(tigetnum("lines"))
+    nw.addstr(0,0,value,textColorpair)
+    nw.attron(textColorpair)
+    screen.refresh()
+    return nw,txtbox
 
-    window = curses.newwin(3, cols, lines-4, 0)
+def now_playing_window():
+    cols = tigetnum("cols")
+    lines = tigetnum("lines")
+
+    window = curses.newwin(5, cols, lines-5, 0)
     window.addstr(1, 2, "Nothing playing", 0)
     window.addstr(1, 2, "", 0)
     window.addstr(2, 2, "", 0)
-    #window.attron(0)
-
-
-    #window.box()
+    window.box()
     screen.refresh()
+    window.refresh()
     return window
 
-np = now_playing_box()
+def list_window():
+    cols = tigetnum("cols")
+    lines = tigetnum("lines")
+
+    # lines-10: 5 from bottom, and 5 space for now_playing box
+    window = curses.newwin(lines-10, cols, 5, 0)
+
+    window.addstr(1, 2, "Nothing done", 0)
+    window.addstr(1, 2, "", 0)
+    window.addstr(2, 2, "", 0)
+    window.box()
+    screen.refresh()
+    window.refresh()
+    return window
+
+def list_info_window():
+    cols = tigetnum("cols")
+    lines = tigetnum("lines")
+
+    # one above the list_window
+    window = curses.newwin(1, cols, 4, 0)
+    window.addstr(0, 0, "Nothing done", 0)
+    screen.refresh()
+    window.refresh()
+    return window
+
+def commnder_info():
+    cols = tigetnum("cols")
+    lines = tigetnum("lines")
+
+    # one above the list_window
+    window = curses.newwin(1, cols, 0, 0)
+    window.addstr(0, 0, "Enter command", 0)
+    screen.refresh()
+    window.refresh()
+    return window
+
+def debug_window():
+    cols = tigetnum("cols")
+    lines = tigetnum("lines")
+
+    # one above the list_window
+    window = curses.newwin(5, cols//2, 0, cols//2)
+    window.addstr(0, 0, "Debug", 0)
+    window.box()
+    screen.refresh()
+    window.refresh()
+    return window
+
+# ncurses window functions
+def update_lwi(msg):
+    lwi.clear()
+    lwi.addstr(0,0, msg, 0)
+    lwi.refresh()
+
+def update_ci(msg):
+    ci.clear()
+    ci.addstr(0, 0, msg, 0)
+    ci.refresh()
+
+def reset_ci():
+    update_ci("Enter command")
+
+def livebug(msg):
+    debug_window.clear()
+    debug_window.addstr(1,1,msg,0)
+    debug_window.box()
+    debug_window.refresh()
+    pass
+
+def livebug2(msg):
+    debug_window.clear()
+    debug_window.addstr(2,1,msg,0)
+    debug_window.box()
+    debug_window.refresh()
+
+# Create windows, for global accesss
+np = now_playing_window()
+lw = list_window()
+lwi = list_info_window()
+ci = commnder_info()
+#debug_window = debug_window()
+textwin,textbox = maketextbox(1,40, 1,1,"")
 
 # spotify API calls spesific
 def on_connection_state_changed(session):
@@ -77,7 +184,7 @@ def on_end_of_track(session):
     #logger.info("End of track")
     session.player.play(False)
     end_of_track.set()
-    #go_next()
+    go_next()
 
 def load_root_container():
     container_root = session.playlist_container
@@ -98,24 +205,92 @@ def play(track):
 
     # ncurses
     np.clear()
-    np.addstr(0, (cols-len(track.artists[0].name))//2, track.artists[0].name.encode('utf-8'), 0)
-    np.addstr(1, (cols-len(track.name))//2, track.name.encode('utf-8'), 0)
-    np.addstr(2, (cols-len(track.album.name))//2, track.album.name.encode('utf-8'), 0)
+    np.addstr(1, (cols-len(track.artists[0].name))//2, track.artists[0].name.encode('utf-8'), 0)
+    np.addstr(2, (cols-len(track.name))//2, track.name.encode('utf-8'), 0)
+    np.addstr(3, (cols-len(track.album.name))//2, track.album.name.encode('utf-8'), 0)
+    np.box()
     np.refresh()
-    screen.refresh()
+    #screen.refresh()
 
+# jump to next song i queue
 def go_next():
     if(len(play_queue) > 0):
         play(play_queue.popleft())
     else:
-            print("Play queue empty")
+        pass
+
+def print_queue():
+    window_max= lw.getmaxyx()[0]
+    lw.clear()
+    lw.box()
+
+    update_lwi("Play queue")
+
+    i = 0
+    for track in play_queue:
+        if(i+3 > window_max): break
+        lw.addstr(i+1, 1, track.name.encode('utf-8'), 0)
+        i = i + 1
+    lw.refresh()
+
+def fast_shell_print():
+    update_lwi("Fast-shell")
+    update_ci("Fastshell: Press a key")
+
+    window_max = lw.getmaxyx()[0]
+    lw.clear()
+    lw.box()
+
+    try:
+        lw.addstr(1, 1, "You are now in fast-shell mode", 0)
+        lw.addstr(2, 1, "All actions require only one keypress, and happens instatnly", 0)
+        lw.addstr(4, 1, ">Press 'x' to return to normal command mode", 0)
+        lw.addstr(5, 1, ">Press 'h' to show this help-screen", 0)
+    except curses.error:
+        pass
+
+    lw.refresh()
+
+
+def fast_shell():
+
+
+    textwin.clear()
+
+    fast_shell_print()
+
+    textwin.clear()
+    screen.refresh()
+    #curses.echo()
+
+    while 1:
+        c = screen.getch()
+        if c == ord('n'):
+            go_next()
+        elif c == ord('x'):
+            break  # Exit the while()
+        elif c == ord('p'):
+            session.player.play(False) 
+        elif c == ord('r'):
+            session.player.play()
+        elif c == ord('q'):
+            print_queue()
+        elif c == ord('h'):
+            fast_shell_print()
+        elif c == curses.KEY_HOME:
+            x = y = 0
+
+    reset_ci()
+
+
+
 
 # look for event changes 
 session.on(
     spotify.SessionEvent.CONNECTION_STATE_UPDATED,
     on_connection_state_changed)
 session.on(
-    spotify.SessionEvent.END_OF_TRACK, on_end_of_track(session))
+    spotify.SessionEvent.END_OF_TRACK, on_end_of_track)
 
 # initialize the alsa audio
 try:
@@ -129,22 +304,19 @@ except ImportError:
 event_loop = spotify.EventLoop(session)
 event_loop.start()
 
-# ncurses
-def maketextbox(h,w,y,x,value="",deco=None,textColorpair=0,decoColorpair=0):
-    # thanks to http://stackoverflow.com/a/5326195/8482 for this
-    nw = curses.newwin(h,w,y,x)
-    txtbox = curses.textpad.Textbox(nw,insert_mode=True)
-    if deco=="frame":
-        screen.attron(decoColorpair)
-        curses.textpad.rectangle(screen,y-1,x-1,y+h,x+w)
-        screen.attroff(decoColorpair)
-    elif deco=="underline":
-        screen.hline(y+1,x,underlineChr,w,decoColorpair)
 
-    nw.addstr(0,0,value,textColorpair)
-    nw.attron(textColorpair)
-    screen.refresh()
-    return nw,txtbox
+
+class StdOutWrapper:
+    text = ""
+    def write(self,txt):
+        self.text += txt
+        self.text = '\n'.join(self.text.split('\n')[-30:])
+    def get_text(self,beg,end):
+        return '\n'.join(self.text.split('\n')[beg:end])
+
+mystdout = StdOutWrapper()
+sys.stdout = mystdout
+sys.stderr = mystdout
 
 
 class Commands(cmd.Cmd):
@@ -166,10 +338,11 @@ class Commands(cmd.Cmd):
         return True
 
     def write(self,text) :
-        screen.clear()
-        textwin.clear()
-        screen.addstr(3,0,text)
-        screen.refresh()
+        pass
+        #screen.clear()
+        #textwin.clear()
+        #screen.addstr(3,1,">" + text + "<")
+        #screen.refresh()
 
     def do_login(self, line):
         "login <username> <password>"
@@ -189,16 +362,36 @@ class Commands(cmd.Cmd):
         if(boole): print("loaded")
         else: print("NOT loaded")
 
-        i = 0
+        # ncurses: clear the window
+        window_max= lw.getmaxyx()[0] 
+        lw.clear()
+        lw.box()
+        #lw.addstr(2, (cols-len(track.name))//2, track.name.encode('utf-8'), 0)
 
+        update_lwi("My playlists")
+
+        i =     0
         for playlist in container_root:
+            if i+3 > window_max:
+                self.write("window is full" + str(i) + "max: " + str(window_max))
+                break
             if( type(playlist) == spotify.playlist.Playlist):
                 if not playlist.is_loaded:
-                    print("Not loaded!")
+                    a = i
+                    #lw.addstr(i+2, 1, "playlists", 0)
+                    #print("Not loaded!")
                 else:
-                    a = i, playlist.name.encode('utf-8')
-                    print(a)
+                    a = i
+                    try: 
+                        lw.addstr(i+1, 1, str(i) + ":", 0)
+                        lw.addstr(i+1, 5, playlist.name.encode('utf-8'), 0)
+                    except curses.error:
+                        pass
+                        #raise
+                    #print(a)
                 i += 1
+
+        lw.refresh()
 
     def do_playp(self, line):
         "Play selected playlist in background"
@@ -214,8 +407,6 @@ class Commands(cmd.Cmd):
 
         current_playlist = [] 
         current_playlist.extend(playlist.tracks)
-
-        now_playing_box()
 
         if randommode: random.shuffle(current_playlist)
         play_queue.extend(current_playlist) 
@@ -236,21 +427,9 @@ class Commands(cmd.Cmd):
             session.logout()
             logged_out.wait()
         event_loop.stop()
-        print('')
+        curses.endwin()
+        print("Thank you")
         return True
-
-    def do_playlists(self, line):
-        "print playlsits"
-        print("Playlists")
-        container_root = session.playlist_container
-        container_root.load()  
-        i = 0
-
-        for playlist in container_root:
-            if( type(playlist) == spotify.playlist.Playlist):
-                a = i, playlist.name.encode('utf-8')
-                print(a)
-                i += 1
 
     def do_list(self, line):
         "Print contents of a playlist"
@@ -288,10 +467,12 @@ class Commands(cmd.Cmd):
         else: randommode = 1
         print("Random", randommode)
 
+    def do_fastshell(self, line):
+        fast_shell() 
+
     def do_queue(self, line):
         "List current play queue"
-        for track in play_queue:
-            print(track.name.encode('utf-8'))
+        print_queue()
 
     def do_search(self, query):
         "search <query>"
@@ -303,39 +484,58 @@ class Commands(cmd.Cmd):
             logger.warning(e)
             return
 
-        print("\n") 
-        print("%d tracks, %d albums, %d artists, and %d playlists found." %
+        update_lwi("Search results")
+        update_ci("Type search result number")
+
+        textwin.clear()
+        window_max = lw.getmaxyx()[0]
+        lw.clear()
+        lw.box()
+
+        lw.addstr(1, 1, "Found: %d tracks, %d albums, %d artists, and %d playlists" %
             (result.track_total, result.album_total, 
-                result.artist_total, result.playlist_total))
+                result.artist_total, result.playlist_total), 0)
+        lw.addstr(2, 1, "", 0)
+
+
+
         i = 1
         for track in result.tracks:
-                print(i, track.artists[0].name.encode('utf-8'), "-", track.name.encode('utf-8'))
+                #print(i, track.artists[0].name.encode('utf-8'), "-", track.name.encode('utf-8'))
+                if(i+3 > window_max): break
+                lw.addstr(i+2, 1, track.name.encode('utf-8'), 0)
                 i+=1
 
-        n = input("Select song to add to queue (0 = none)")
+        lw.refresh()
+
+
+        #n = input("Select song to add to queue (0 = none)")
+        n = textbox.edit()
         n = int(n) - 1
+
+        #self.write(str(n))
         if(n == -1 ): return
         if(n > 20 ): return
         play_queue.appendleft(result.tracks[n])
-        print(end_of_track) 
         if(end_of_track.is_set()):
             play(play_queue.pop())
-        print("\n") 
 
+        reset_ci()
 
 
 if __name__ == '__main__':
     curses.noecho()
-    textwin,textbox = maketextbox(1,40, 1,1,"")
 
     np.refresh()
     flag = False
     while not flag :
         text = textbox.edit()
         curses.beep()
-        session.process_events()
+        # session.process_events()
         #text = input("test")
         flag = Commands().onecmd(text)
+        textwin.clear()
+
 
 
 
